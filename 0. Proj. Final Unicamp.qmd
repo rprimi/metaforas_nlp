@@ -1,0 +1,729 @@
+---
+title: "Projeto Final Metaf Unicamp"
+format: html
+editor: source
+---
+
+### Data
+
+```{r}
+  library(reticulate)
+  library(tidyverse)
+  library(tidytext)
+  library(purrr)
+  library(readr)
+
+  library(psych)
+  library(keras)
+
+  library(tm)
+  library(SnowballC)
+  library(quanteda)
+  library(sjmisc)
+  library(xlsx)
+  library(readxl)
+  library(glue)
+
+  library(RColorBrewer)
+  library(MetBrewer)
+  library(PNWColors)
+  library(harrypotter)
+
+  colors <-  hp(n = 5, option = "HarryPotter") 
+  colors <-  hp(n = 5, option = "HermioneGranger")
+  colors <-  hp(n = 5, option = "LunaLovegood")
+  colors <-  hp(n = 5, option = "Mischief")
+  colors <- pnw_palette("Shuksan",5,type="discrete")
+  colors <- pnw_palette("Sailboat",5,type="discrete")
+ 
+  colors <- pnw_palette("Bay",5,type="discrete")   
+
+    # devtools::install_github("rstudio/reticulate")
+    
+
+    # devtools::install_github("kbenoit/quanteda")     
+```
+
+```{r}
+ load("data_metaf.RData")
+```
+
+```{r}
+ save.image("~/Dropbox (Personal)/Artigos/2022 Automated scoring of MCT/data_metaf.RData")
+```
+
+
+### Prepara responses cased
+
+```{r}
+
+  names(resp2)
+
+  resp2 <- resp2 %>% 
+      mutate(resp_relacao3  = paste0(str_to_title(wordA), 
+        " é o ", resposta, " da ", 
+        str_to_title(wordB), ". ", 
+        Relação)
+        )
+  
+  resp2 <- resp2 %>% 
+      mutate(resp_relacao4  = paste0(str_to_title(wordA), 
+        " : ", resposta, " : ", 
+        str_to_title(wordB), ". ", 
+        Relação)
+        )
+ 
+
+```
+
+
+
+* Corrige um erro do codigo dos itens
+```{r}
+
+resp2$wordA <- ifelse(resp2$Item == 'F08', 'porta', resp2$wordA)
+resp2$wordB <- ifelse(resp2$Item == 'F08', 'casa', resp2$wordB)
+resp2$Item <- ifelse(resp2$Item == 'E08', 'C08', resp2$Item)
+
+resp3$wordA <- ifelse(resp3$Item == 'F08', 'porta', resp3$wordA)
+resp3$wordB <- ifelse(resp3$Item == 'F08', 'casa', resp3$wordB)
+resp3$Item <- ifelse(resp3$Item == 'E08', 'C08', resp3$Item)
+
+```
+
+
+### Prepara variável Test vs Train
+
+```{r}
+
+    n = dplyr::n_distinct(resp2$Código)
+    codsuj =  unique(resp2$Código)
+    
+    set.seed(23)
+    idx <- sample(1:n) 
+    prop_train <- .80
+    n_train = round(prop_train*n)
+    n_test = n - n_train
+    
+    codsuj_train = codsuj[idx][1:n_train] 
+ 
+    resp2 <- resp2 %>% 
+      mutate(train_subj = ifelse(Código %in% codsuj_train, 1, 0))
+    
+    resp2$train_subj %>% frq()
+ 
+
+```
+
+### Export to csv
+
+```{r}
+
+ names(resp2)
+
+ resp2 %>% dplyr::select(iddd2, Código, Item, n_resposta,
+                         train_subj, resp_relacao3, y_theta,
+                         y_score1, y_score2) %>%
+ write_csv(file = "/Volumes/GoogleDrive/Meu Drive/unicamp - IA024 /projeto_metaf/dt_metaf_unicamp.csv")
+ 
+
+```
+
+```{r}
+
+test_results_bertimbau_base <- read_csv("/Volumes/GoogleDrive/Meu Drive/unicamp - IA024 /projeto_metaf/test_results_bertimbau_base.csv")
+
+test_results_bertimbau_large <- read_csv("/Volumes/GoogleDrive/Meu Drive/unicamp - IA024 /projeto_metaf/test_results_bertimbau_large.csv")
+
+dt_metaf_unicamp <- read_csv("/Volumes/GoogleDrive/Meu Drive/unicamp - IA024 /projeto_metaf/dt_metaf_unicamp.csv")
+library(tidyverse)
+dt_test <- dt_metaf_unicamp %>% filter(train_subj ==0) %>%
+    mutate(y_bert_base = as.integer(str_sub(test_results_bertimbau_base$label, -1)),
+           y_bert_large = as.integer(str_sub(test_results_bertimbau_large$label, -1))
+    )
+
+
+rm(t_metaf_unicamp)
+
+```
+
+```{r}
+
+compute_metrics <- function(y_test, y_pred, view_errors = F, dummy = TRUE, id){
+
+  colors <- pnw_palette("Bay",5,type="discrete")    
+    
+     df = bind_cols(
+       Código=id,
+       y_pred = y_pred,
+       y_score1 = y_test
+       )
+    
+   y_test = factor(y_test)
+   y_pred = factor(y_pred)
+ 
+    
+    cat( "\n", "\n")
+    cat("Confusion Matrix and other metrics", "\n", "\n")
+    cm = caret::confusionMatrix(
+        data = y_pred,
+        reference =  y_test,
+        positive = c("0", "1", "2", "3"),
+        mode = "everything"
+      ) %>% print
+    
+  
+    
+    cat( "\n", "\n")
+    cat("F1 score", "\n", "\n")
+    print(yardstick::f_meas(cm$table[1:3, 1:3 ], truth = "Reference", estimator = "macro", na_rm = T))
+    print(caret::F_meas(cm$table))
+    
+    cat( "\n", "\n")
+    cat("F1 macro average score", "\n", "\n")
+    
+    rs <- crfsuite::crf_evaluation(
+        pred = y_pred,
+        obs =y_test,
+        labels = c("0", "1", "2", "3"),
+        labels_overall =c("0", "1", "2", "3")
+        )
+   
+    cat( "\n", "\n")
+    cat("Idea Level Correlation", "\n", "\n")
+    df %>% select( y_pred, y_score1) %>%
+        psych::corr.test() %>% 
+        print
+      
+    cat( "\n", "\n")
+    cat("Subject Level Correlation", "\n", "\n")
+    df %>% 
+        select(Código, y_pred, y_score1) %>%
+        group_by(Código) %>%
+        summarise_all(.funs = mean) %>%
+        select(-Código) %>%
+        psych::corr.test() %>% 
+        print
+ 
+      
+    f1 <- df %>%
+        ggplot(  aes(x = y_test, y = y_pred ) ) +
+        geom_jitter( alpha = 1/2, aes(color = y_pred)) +
+        geom_smooth(method = "lm", color = "red") +
+        scale_color_gradientn(colours =  colors ) 
+    
+    
+    f2 <- df %>%
+        group_by(Código) %>%
+        summarise_all(.funs = mean) %>%
+        select(-Código) %>%
+        ggplot(aes(y = y_pred, x = y_score1) ) +
+        geom_point( alpha = 1/2,  aes(color = y_pred)) +
+        geom_smooth(method = "lm", color = "red") +
+        scale_color_gradientn(colours =  colors ) 
+   
+    print(f1)
+    print(f2)
+    
+    
+    }
+
+```
+
+
+```{r}
+library(PNWColors)
+
+compute_metrics(dt_test$y_score1, dt_test$y_bert_base, id = dt_test$Código)
+
+```
+
+```{r}
+compute_metrics(dt_test$y_score1, dt_test$y_bert_large, id = dt_test$Código)
+
+```
+
+```{r}
+sjmisc::frq(dt_test$y_score1)
+sjmisc::frq(dt_test$y_bert_base)
+
+sjmisc::flat_table(dt_test, y_bert_base, y_bert_large)
+
+sjmisc::flat_table(dt_test, y_bert_base, y_score1, margin = "row", digits = 0 )
+
+dt_test %>% 
+    mutate(y_score1b = ifelse(y_score1 >=2, 2, y_score1)) %>%
+    sjmisc::flat_table(y_bert_base, y_score1b, margin = "row", digits = 0 )
+
+sjmisc::flat_table(dt_test, y_bert_base, y_bert_large)
+
+dt_test <- dt_test %>% 
+    mutate(y_score1b = ifelse(y_score1 >=2, 2, y_score1)) 
+
+compute_metrics(dt_test$y_score1b, dt_test$y_bert_large, id = dt_test$Código)
+
+
+dt_test %>% dplyr::filter(y_score1== 0, y_bert_base > 1) %>%   write.xlsx2(file= "resultados.xlsx", sheet="erros1", append = T)
+dt_test %>% dplyr::filter(y_score1== 3, y_bert_base ==0 ) %>%   write.xlsx2(file= "resultados.xlsx", sheet="erros2", append = T)
+
+dt_test %>% dplyr::filter(y_score1== 1, y_bert_base ==2) %>% pull(resp_relacao3) 
+
+dt_test %>% dplyr::filter(y_score1 >= 2, y_bert_base ==2) %>% pull(resp_relacao3) 
+
+
+```
+
+
+
+```{r}
+   
+    cat( "\n", "\n")
+    cat("Subject Level Correlation based on top 25", "\n", "\n")
+    resp2[test_indices, ] %>% 
+        bind_cols(y_pred =  (as.integer(y_pred))) %>% 
+        select(Código, y_pred, y_score1, Ma_measure) %>%
+        group_by(Código) %>%
+        mutate(top_ideas = max(dense_rank(Ma_measure))+ 1 - (dense_rank(Ma_measure))) %>% 
+        ungroup() %>%
+        filter(top_ideas <=2) %>%
+        group_by(Código) %>%
+        summarise_all(.funs = mean) %>%
+        select(-Código) %>%
+        corr.test() %>% 
+        print
+    
+    
+    f1 <- data.frame(
+        y_test = (as.integer(y_test)-1), 
+        y_pred =  (as.integer(y_pred)-1)
+    ) %>%
+        ggplot(  aes(x = y_test, y = y_pred ) ) +
+        geom_jitter( alpha = 1/2, aes(color = y_pred)) +
+        geom_smooth(method = "lm", color = "red") +
+        scale_color_gradientn(colours =  colors ) 
+    
+    
+    f2 <- resp2[test_indices, ] %>% 
+        bind_cols(  y_pred =  (as.integer(y_pred)-1))  %>% 
+        select(Código, y_pred, y_score1, Ma_measure) %>%
+        group_by(Código) %>%
+        summarise_all(.funs = mean) %>%
+        select(-Código) %>%
+        ggplot(aes(y = y_pred, x = y_score1) ) +
+        geom_point( alpha = 1/2,  aes(color = y_pred)) +
+        geom_smooth(method = "lm", color = "red") +
+        scale_color_gradientn(colours =  colors ) 
+   
+    print(f1)
+    print(f2)
+    
+    cat( "\n", "\n")
+    cat("Weighted Kappa", "\n", "\n")
+    print(irr::kappa2(cbind(as.integer(y_test), as.integer(y_pred)), weight = "squared"))
+    
+    knitr::kable(rs$bylabel, digits = 3) %>% print
+    knitr::kable(rs$overall, digits = 3) %>% print
+    
+    cat( "\n", "\n")
+    cat("Idea Level Correlation", "\n", "\n")
+    cbind( y_test = (as.integer(y_test)), y_pred =  (as.integer(y_pred))) %>%  
+        corr.test() %>% print
+    
+    
+    cat( "\n", "\n")
+    cat("Subject Level Correlation", "\n", "\n")
+    resp2[test_indices, ] %>% 
+        bind_cols(y_pred =  (as.integer(y_pred))) %>% 
+        select(Código, y_pred, y_score1, Ma_measure) %>%
+        group_by(Código) %>%
+        summarise_all(.funs = mean) %>%
+        select(-Código) %>%
+        corr.test() %>% 
+        print
+    
+ #   if(view_errors) {
+ #       resp2[test_indices, ] %>% 
+ #       bind_cols(  y_pred =  (as.integer(y_pred)-1))  %>% 
+ #       select(iddd2, Código, Item, resposta, resp_relac2, y_pred, y_score1, Ma_measure) %>%
+ #       mutate(erro = abs(y_pred - y_score1)) %>%
+ #       arrange(Item, desc(erro), Código) %>%
+ #      view
+```
+
+### GPT3 
+
+* Primeira versão do prompt
+
+Abaixo apresentamos analogias e suas notas refletindo qãoo criativas e originais elas são em 4 níveis:
+0: nada criativo, 1: criativo, 2: muito criativo e 3: extremamente criativo
+
+Semaforo é o Professor da Rua. 
+	
+Vulcao é o chapéu chinês da Terra.  Escore = 3:extremamente criativo
+Grama é o cabelo da Terra. 3: Escore = 3 extremamente criativo
+Buzina é o arroto da Carro. 3: Escore = 3 extremamente criativo
+
+Cabide é o sala de espera da Roupa.  Escore = 2:muito criativo 
+Grama é o carpete da Terra. 2: Escore = 2 muito criativo 
+Moto é o leopardo da Automóveis.  Escore =2 muito criativo 
+
+Semaforo é o Respeito da Rua. Escore = 1 criativo 
+Planetas é o elétrons da Sol.  Escore = 1 criativo 
+Cabide é o namorado da Roupa.  Escore = 1 criativo 
+Grama é o Roupa da Terra.  Escore = 1 criativo 
+
+Planetas é o acessórios da Sol.  Escore = 0 nada criativo 
+mor é o espelho da Sentimentos. Escore = 0 nada criativo 
+Peixes é o donos do mar da Mar. Escore = 0 nada criativo 
+Peixes é o marinheiros da Mar. Escore = 0 nada criativo 
+
+Complete o Escore das analogias
+
+Peixes é o donos do mar. Escore = 
+Grama é o sonho da Terra. Escore = 
+Grama é o peruca da Terra. Escore = 
+Macaco é o Tarzan da Floresta. Escore = 
+
+
+* Segunda versão do prompt
+Abaixo há uma lista de analogias. Em uma escala de 0-3 julgue quão criativas e originais são as analogias sendo 0 é "nada criativo" e 3 "muito criativo".
+
+ANALOGIAS
+1. Semáforo é o professor da rua. 
+2. Planetas são os elétrons do sol 
+3. Moto é o leopardo da automóveis.
+4. Vulcão é o chapéu chinês da terra.  
+5. Cabide é a sala de espera da roupa 
+6 Planetas são os acessórios do sol. 
+7. Amor é o espelho da Sentimentos. 
+8. Grama é o carpete da terra.
+9. Grama é o cabelo da terra.
+10. Semáforo é o respeito da rua. 
+11. Cabide é o namorado da roupa. 
+12. Peixes são os donos do mar do mar.
+13. A Buzina é o arroto do carro.
+14. Grama é o Roupa da terra. 
+15. Peixes são os marinheiros do mar. 
+
+AVALIAÇÕES
+1.  3
+2. 0
+3. 2
+4. 3
+5. 1
+6. 0
+7. 0
+8. 2
+9
+10
+11
+12
+13
+14
+15
+
+
+
+```{r}
+
+
+resp2 %>% filter(y_score1 == 3, ) %>% select(Item, resp_relacao4) %>% view
+resp2 %>% filter(y_score1 == 2) %>% select(Item, resp_relacao3) %>% view
+resp2 %>% filter(y_score1 == 1) %>% select(Item, resp_relacao3) %>% view
+resp2 %>% filter(y_score1 == 0) %>% select(Item, resp_relacao3) %>% view
+
+
+
+```
+
+1. Modelo do prompt
+```{r}
+
+prompt = "Abaixo há uma lista de analogias. Em uma escala de 0-3 julgue quão criativas e originais são as analogias sendo 0 é \"nada criativo\" e 3 \"muito criativo\".
+\n\nANALOGIAS
+\n1. Semáforo é o professor da rua. 
+\n2. Planetas são os elétrons do sol 
+\n3. Moto é o leopardo da automóveis.
+\n4. Vulcão é o chapéu chinês da terra.  
+\n5. Cabide é a sala de espera da roupa 
+\n6 Planetas são os acessórios do sol.
+\n7. Amor é o espelho da Sentimentos. 
+\n8. Grama é o carpete da terra.
+\n9. Grama é o cabelo da terra.
+\n10. Semáforo é o respeito da rua. 
+\n11. Cabide é o namorado da roupa. 
+\n12. Peixes são os donos do mar do mar.
+\n13. A Buzina é o arroto do carro.
+\n14. Grama é o Roupa da terra. 
+\n15. Peixes são os marinheiros do mar. 
+
+\n\nAVALIAÇÕES
+\n1. 3
+\n2. 0
+\n3. 2
+\n4. 3
+\n5. 1
+\n6. 0
+\n7. 0
+\n8. 2
+\n9
+\n10
+\n11
+\n12
+\n13
+\n14
+\n15
+"
+
+cat(prompt)
+
+```
+
+2. Seleção dos exemplos
+```{r}
+
+set.seed(23)
+
+prompt_db <- resp2 %>% 
+    filter(train_subj == 1) %>% 
+    group_by(y_score1) %>%
+    slice_sample(n=4, replace = FALSE) 
+
+prompt_db <- prompt_db %>% ungroup() %>% slice_sample(n = 16)
+prompt_db$row_id <- as.integer(row.names(prompt_db))
+
+library(glue)
+
+instru = 'Abaixo há uma lista de analogias. Em uma escala de 0-3 julgue quão criativas e originais são as analogias sendo 0 é \"nada criativo\" e 3 \"muito criativo\". '
+
+exemplos = '\n\nANALOGIAS '
+
+for (i in 1:nrow(prompt_db)) {
+  exemplos = glue(exemplos , '\n', prompt_db$row_id[i], ". ", prompt_db$resp_relacao4[i],  " ")  
+}
+
+
+avaliacoes = '\n\nAVALIAÇÕES '
+
+for (i in 1:nrow(prompt_db)) {
+  avaliacoes = glue(avaliacoes , '\n', prompt_db$row_id[i], ". ", prompt_db$y_score1[i],  " ")  
+}
+
+
+```
+
+3. Base de teste
+```{r}
+
+test_db <- resp2 %>% 
+    filter(train_subj == 0)
+
+test_db$row_id <- as.integer(row.names(test_db)) + 16
+
+item = glue( '\n', test_db$row_id[1], ". ",test_db$resp_relacao4[1],  " ")  
+
+item_n = glue( '\n', test_db$row_id[1])
+
+glimpse(test_db)
+
+test_db <- test_db %>% 
+    rowwise() %>%
+    mutate( 
+    test_prompt = paste0(instru,  
+     '\n\n', exemplos, 
+     '\n', as.character(row_id ), ". ", resp_relacao4,
+    '\n\n', avaliacoes, 
+     '\n', as.character(row_id ))
+    )
+    
+cat(test_db$test_prompt[1:3])
+
+test_prompt = paste(instru,  exemplos, item, avaliacoes, item_n )
+
+#"/content/drive/MyDrive/unicamp - IA024 /projeto_metaf"
+#"/Volumes/GoogleDrive/Meu Drive/unicamp - IA024 /projeto_metaf/test_db.csv"
+
+write_csv(test_db, file = "~/Library/CloudStorage/GoogleDrive-ricprimi@gmail.com/Meu Drive/unicamp - IA024 /projeto_metaf/test_db.csv" )
+
+```
+
+
+
+
+```{python}
+
+!pip install openai
+
+db = r.test_db
+db = db.iloc[1:501]
+db.shape
+
+
+
+import openai
+import os
+import pandas as pd
+import random
+
+openai.api_key = "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"
+
+# openai.api_key = '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'
+
+def few_shot(data, n_questions_to_prompt):
+    model_answers = []
+  
+    for i in range(n_questions_to_prompt):
+        response = openai.Completion.create(
+            model="text-davinci-003",
+            prompt =data.test_prompt[i],
+            temperature=0.7,
+            max_tokens=275,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0,
+            logprobs=1,
+            echo=True
+            )
+        model_answers.append(response)
+        
+    return model_answers
+
+test_eval_gpt3_1 = few_shot(data = db, n_questions_to_prompt=500)
+
+len(test_eval_gpt3)
+
+teste5[1]
+teste5[2]
+
+
+```
+
+
+```{r}
+
+library(readr)
+gdrive_path = "/Volumes/GoogleDrive/Meu Drive/unicamp - IA024 /projeto_metaf/"
+
+
+
+results_gpt3_1 <- read_csv(glue(gdrive_path, 'test_eval_gpt3_1.csv'))
+bd_test1 <- read_csv(glue(gdrive_path, 'bd_test1.csv'))
+
+y_pred_gpt = results_gpt3_1$choices  %>% str_sub(-5, -5) %>% as.integer
+y_score1 = bd_test1$y_score1
+id1 = bd_test1$...1
+id2 = results_gpt3_1$...1
+
+
+results_gpt3_2 <- read_csv(glue(gdrive_path, 'test_eval_gpt3_2.csv'))
+bd_test2 <- read_csv(glue(gdrive_path, 'bd_test2.csv'))
+
+y_pred_gpt = c( y_pred_gpt, results_gpt3_2$choices  %>% str_sub(-5, -5) %>% as.integer)
+y_score1 = c(y_score1, bd_test2$y_score1)
+
+id1 = c(id1, bd_test2$...1)
+id2 = c(id2, results_gpt3_2$...1)
+
+
+
+
+
+
+
+results_gpt3_3$choices  %>% str_sub(-5, -5) 
+results_gpt3_3$...1
+bd_test3$y_score2
+
+
+results_gpt3_4 <- read_csv(glue(gdrive_path, 'test_eval_gpt3_4.csv'))
+bd_test4 <- read_csv(glue(gdrive_path, 'bd_test4.csv'))
+bd_test4$y_score2
+
+results_gpt3_4$choices  %>% str_sub(-5, -5) 
+results_gpt3_4$...1
+
+
+results_gpt3_5 <- read_csv(glue(gdrive_path, 'test_eval_gpt3_5.csv'))
+bd_test4 <- read_csv(glue(gdrive_path, 'bd_test4.csv'))
+
+results_gpt3_5$choices  %>% str_sub(-5, -5) 
+results_gpt3_5$...1
+
+
+
+
+
+results_gpt3_6 <- read_csv(glue(gdrive_path, 'test_eval_gpt3_6.csv'))
+bd_test4 <- read_csv(glue(gdrive_path, 'bd_test6.csv'))
+
+results_gpt3_5$choices  %>% str_sub(-5, -5) 
+results_gpt3_5$...1
+bd_test4$y_score2
+
+
+results_gpt3_4 <- read_csv(glue(gdrive_path, 'test_eval_gpt3_4.csv'))
+bd_test4 <- read_csv(glue(gdrive_path, 'bd_test4.csv'))
+
+
+bd_test4$test_prompt[1]
+results_gpt3_4$choices[1]
+
+bd_test4$test_prompt[1371]
+results_gpt3_4$choices[1371]
+
+
+results_gpt3_7 <- read_csv(glue(gdrive_path, 'test_eval_gpt3_7.csv'))
+bd_test5 <- read_csv(glue(gdrive_path, 'bd_test5.csv'))
+
+bd_test5$test_prompt[1]
+results_gpt3_7$choices[1]
+
+bd_test5$test_prompt[1371]
+results_gpt3_7$choices[1371]
+
+
+
+results_gpt3_7$choices  %>% str_sub(-5, -5) 
+results_gpt3_3$...1
+
+bd_test3$y_score2
+
+
+results_gpt3 <- bind_rows(
+  
+  read_csv("~/Library/CloudStorage/GoogleDrive-ricprimi@gmail.com/Meu Drive/unicamp - IA024 /projeto_metaf/test_eval_gpt3_2.csv"),
+  read_csv("~/Library/CloudStorage/GoogleDrive-ricprimi@gmail.com/Meu Drive/unicamp - IA024 /projeto_metaf/test_eval_gpt3_3.csv")
+
+)
+frq(resp2$train_subj)
+str_results_gpt3$choices[1]
+
+```
+
+```{r}
+
+y_pred_gpt = NULL
+y_score1 = NULL
+id1 = NULL
+id2 = NULL
+
+
+y_pred_gpt = c( y_pred_gpt, results_gpt3_7$choices  %>% str_sub(-5, -5) %>% as.integer)
+y_score1 = c(y_score1, bd_test5$y_score1)
+
+id1 = c(id1, bd_test5$...1)
+id2 = c(id2, results_gpt3_7$...1)
+
+test_results_gpt <- tibble(
+    id1 = id1[1:1371],
+    y_pred_gpt=y_pred_gpt,
+    y_score1 = y_score1[1:1371]
+    
+)
+
+
+
+
+
+```
+

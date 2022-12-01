@@ -1,0 +1,878 @@
+---
+title: "Model 13: word vectors plus rumelhart and abrahamson model"
+output: html_document
+---
+
+```{r}
+  
+  library(tidyverse)
+  library(tidytext)
+  library(purrr)
+
+  library(psych)
+  library(keras)
+
+  library(tm)
+  library(SnowballC)
+  library(quanteda)
+  library(sjmisc)
+  library(xlsx)
+  library(readxl)
+  library(glue)
+
+  library(RColorBrewer)
+  library(MetBrewer)
+  library(PNWColors)
+  library(harrypotter)
+
+  colors <-  hp(n = 5, option = "HarryPotter") 
+  colors <-  hp(n = 5, option = "HermioneGranger")
+  colors <-  hp(n = 5, option = "LunaLovegood")
+  colors <-  hp(n = 5, option = "Mischief")
+  colors <- pnw_palette("Shuksan",5,type="discrete")
+  colors <- pnw_palette("Sailboat",5,type="discrete")
+ 
+  colors <- pnw_palette("Bay",5,type="discrete")   
+
+    # devtools::install_github("rstudio/reticulate")
+    
+
+    # devtools::install_github("kbenoit/quanteda")     
+```
+
+#### Load and prepare data
+
+```{r}
+  setwd("~/Dropbox (Personal)/Criativ_NLP")
+   # load("metaphor_data.RData")
+  load("data_metaf.RData")
+
+```
+
+* New embeddings 27/11/2023 cased 
+
+```{r}
+
+library(readr)
+ embedd_pool <- read_csv('/Volumes/GoogleDrive/Meu Drive/unicamp - IA024 /projeto_metaf/embedd_pool_mc12.csv')
+ 
+ names(ebmedd_pool)[1] <- "word"
+ glimpse(ebmedd_pool)
+ 
+ # embedd_pool <- ebmedd_pool
+ # rm(ebmedd_pool)
+ 
+```
+
+1. Stimulus
+```{r}
+
+sjmisc::frq(resp3$Item)
+
+resp3 %>% flat_table(wordA, Item)
+resp3 %>% glimpse
+
+bd_itens <- resp2 %>% 
+    group_by(Item) %>%
+    summarise(
+     wordA = first(wordA ),
+     wordB = first(wordB ),
+     freq = n()
+    ) %>% 
+    arrange(Item)
+    
+
+write.xlsx2(bd_itens, file = "bd_itens.xlsx")
+
+
+bd_itens <- read_excel("bd_itens.xlsx")
+
+names(bd_itens)
+
+
+
+```
+
+
+2. Long file
+```{r}
+
+names(resp3b)
+library(tidytext)
+
+resp3b <- resp2 %>% tidytext::unnest_tokens(word, resp_relacao3, token = "words", to_lower = FALSE)
+
+rm_accent(resp3b$word)
+source("~/Dropbox (Personal)/R_func/rm_accent.R")
+resp3b$word2 <- str_to_lower(rm_accent(resp3b$word))
+resp3b <- resp3b %>% anti_join(stop_words_pt, by = c("word2" = "word")) 
+
+
+```
+
+3. Embeddings  as matrices
+
+```{r}
+
+prepare_embedings <- function(emb, bd_itens){
+  
+  pr_emb <- bd_itens %>% 
+    select(ord, Item, wordA, wordB, wordC1, wordC2) %>%
+    pivot_longer(cols = wordA:wordC2, names_to = "term", values_to = "word") %>% 
+    left_join(emb) %>%
+    group_by(Item) %>%
+    select(-ord, -term, -word) %>%
+    summarise(across(.cols = everything(), mean, na.rm = T)) %>%
+    select(-Item) %>%
+    as.matrix
+  
+  dimnames(pr_emb )[[1]] <- bd_itens$Item
+  
+  emb2 <- as.matrix(emb[ , 2:769])
+  dimnames(emb2  )[[1]] <- emb$word
+
+  return(
+    list(pr_emb = pr_emb, emb2 = emb2)
+   )
+}
+
+
+#embedd_pool2["Salvadores",  ]
+# prompt_embeddings2["F07", ]
+
+```
+4. Cossine similarity
+```{r}
+
+cos_similarity <- function(embeddings, data) {
+  
+  out <- vector("double", nrow(data))
+  
+  for(i in 1:length(out)) {
+      item <-data[i, ]$Item 
+      word <-data[i, ]$word
+      print(paste0(i, " ", word))
+      x = NA
+      y = NA
+     
+      x =  embeddings$pr_emb[item, ] 
+      y =  try(embeddings$emb2[word,  ]) 
+      
+      if ( class(y) == "try-error") {
+          out[[i]] <- NA
+      } else {
+          out[[i]] <-  sum(x*y) / ( sqrt(sum(x^2)) * sqrt(sum(y^2)) )  
+      }
+   } 
+  
+  return(out)    
+}
+  
+
+```
+
+
+
+5. Execute function and calculate similarities for different typoe of embeddings
+
+```{r}
+
+ gdrive_path = "~/Library/CloudStorage/GoogleDrive-ricprimi@gmail.com/Meu Drive/unicamp - IA024 /projeto_metaf/"
+ gdrive_path = "/Volumes/GoogleDrive/Meu Drive/unicamp - IA024 /projeto_metaf/"
+
+ embed0 <- read_csv(glue(gdrive_path, 'embed0.csv'))
+ names(embed0)[1] <- "word"
+ 
+ embed3 <- read_csv(glue(gdrive_path,'embed3.csv'))
+ names(embed3)[1] <- "word"
+
+ embed9 <- read_csv(glue(gdrive_path,'embed9.csv'))
+ names(embed9)[1] <- "word"
+ 
+ embed12 <- read_csv(glue(gdrive_path, 'embed12.csv'))
+ names(embed12)[1] <- "word"
+ 
+ embedd_pool3 <- read_csv( glue(gdrive_path, 'embedd_pool_mc3.csv'))
+ names(embedd_pool3)[1] <- "word"
+ 
+ embedd_pool12 <- read_csv( glue(gdrive_path, 'embedd_pool_mc12.csv'))
+ names(embedd_pool12)[1] <- "word"
+ 
+ 
+ 
+ embeddings0 <- prepare_embedings(embed0, bd_itens)
+ cosim0 <- cos_similarity(embeddings0, resp3b)
+
+ embeddings3 <- prepare_embedings( embed3, bd_itens)
+ cosim3 <- cos_similarity(embeddings3, resp3b)
+ 
+ embeddings9 <- prepare_embedings( embed9, bd_itens)
+ cosim9 <- cos_similarity(embeddings9, resp3b)
+ 
+ embeddings12 <- prepare_embedings( embed12, bd_itens)
+ cosim12 <- cos_similarity(embeddings12, resp3b)
+ 
+ embeddings_pool3 <- prepare_embedings( embedd_pool3, bd_itens)
+ cosim_pool3 <- cos_similarity(embeddings_pool3, resp3b)
+ 
+ embeddings_pool12 <- prepare_embedings( embedd_pool12, bd_itens)
+ cosim_pool12 <- cos_similarity(embeddings_pool12, resp3b)
+ 
+ names(resp3b) length(cosim_pool12)
+ 
+ resp3b <- resp3b[ , 1:26]
+ 
+ resp3b$cosim0 = cosim0 
+ resp3b$cosim3 = cosim3 
+ resp3b$cosim9 = cosim9
+ resp3b$cosim12 = cosim12
+ resp3b$cosim_pool3 =  cosim_pool3
+ resp3b$cosim_pool12  = cosim_pool12 
+
+ 
+ rm(embedd_pool2,  embeddings, embeddings0, prompt_embeddings, prompt_embeddings2, embed0, embed12, embedd_pool)
+  rm(cosim1, cosim12, cosim0)
+    
+```
+
+
+6. Aggregate similarity
+
+```{r}
+
+
+resp3b %>% glimpse
+resp2 %>% glimpse
+
+names(resp2)
+names(resp3b)
+
+
+resp2 <- resp2[ , c(1:25, 38:39)] %>% 
+    left_join({
+       resp3b %>% group_by(iddd2) %>%
+        summarise(
+         across(
+             cosim0:cosim_pool12, 
+             list(m= mean, sd=sd,  min=min), 
+             na.rm=TRUE
+            )
+        ) 
+    })
+
+resp2 %>% glimpse
+
+```
+
+7. CLS Token
+
+```{r}
+
+ 
+ # CLS 
+ embed_CLS <- read_csv( glue(gdrive_path,'embed_CLS.csv') )
+ names(embed_CLS)[1] <- "word"
+ embed_CLS$word <- resp2$iddd2
+
+  pr_emb <- bd_itens %>% 
+    select(ord, Item, wordA, wordB, wordC1, wordC2) %>%
+    pivot_longer(cols = wordA:wordC2, names_to = "term", values_to = "word") %>% 
+    left_join(embedd_pool) %>%
+    group_by(Item) %>%
+    select(-ord, -term, -word) %>%
+    summarise(across(.cols = everything(), mean, na.rm = T)) %>%
+    select(-Item) %>%
+    as.matrix
+  
+  dimnames(pr_emb )[[1]] <- bd_itens$Item
+  
+ 
+  emb2 <- as.matrix(embed_CLS[ , 2:769])
+  dimnames(emb2  )[[1]] <- embed_CLS$word
+ 
+ debugonce(cos_similarity)
+ 
+ cosim_cls <- cos_similarity(  list(pr_emb = pr_emb, emb2 = emb2) , resp2 %>% mutate(word = iddd2))
+ 
+ resp2$cosim_cls = cosim_cls
+   
+ hist(cosim_cls)    
+     
+ 
+ 
+```
+8. Exploring distributions and correlations
+```{r}
+
+class(emb2) <- "vector"
+
+dim(emb2) <- 12174*768
+ggplot(data = as.data.frame( emb2), aes(x=emb2) ) + geom_histogram(color = "white") + 
+    scale_x_continuous(limits = c(-1, 1))
+
+dim(embeddings12$emb )
+emb <- embeddings12$emb 
+dim(emb) <- dim(embeddings12$emb )[1]* dim(embeddings12$emb )[2]
+ggplot(data = as.data.frame( emb), aes(x=emb) ) + geom_histogram(color = "white") + 
+    scale_x_continuous(limits = c(-1, 1))
+
+
+dim(embeddings0$emb )
+emb <- embeddings0$emb 
+dim(emb) <- dim(embeddings0$emb )[1]* dim(embeddings0$emb )[2]
+ggplot(data = as.data.frame( emb), aes(x=emb) ) + geom_histogram(color = "white") + 
+    scale_x_continuous(limits = c(-1, 1))
+
+unclass(emb2)
+glimpse(emb2)
+
+
+```
+
+
+7. Semantic distance
+
+```{r}
+  names(resp2)
+  library(corrr)
+   library(psych)
+ 
+ 
+  resp2 %>% select(y_score1, y_theta,   cosim0_m:cosim_cls ) %>%
+      correlate() %>%
+      focus(y_score1, y_theta) %>%
+      fashion() %>%
+      write.xlsx2(file= "resultados.xlsx", sheet="t1", append = T)
+  
+  
+  resp2 %>%
+     group_by( Item) %>%
+     summarise(
+      cosim_pool3_min = cor(cosim_pool3_min, y_theta, use = "pair"), 
+      cosim_pool3_m = cor(cosim_pool3_m, y_theta, use = "pair"),  
+      n = n()
+      ) %>%
+    arrange(cosim_pool3_min) %>%
+       write.xlsx2(file= "resultados.xlsx", sheet="t2", append = T) 
+  
+   resp2 %>% select(Código, y_score1, y_theta, cosim0_m:cosim_cls  ) %>%
+       ungroup() %>%
+      group_by(Código) %>%
+     summarise_all(.funs = mean, na.rm = TRUE) %>%
+     select(-Código) %>%
+     correlate() %>%
+      focus(y_score1, y_theta) %>%
+      fashion() %>%
+      write.xlsx2(file= "resultados.xlsx", sheet="t3", append = T)
+  
+   resp2 %>%
+     # filter(sem_dis_CD !=0) %>%  
+       filter( Item %in% c("A05", "A06", "A08", "A09", "A07") )%>%
+      ggplot(  aes(x = cosim_pool3_min, y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth() +
+        facet_grid(.~Item) +
+        scale_fill_manual(values =  colors ) +
+        scale_color_manual(values =  colors ) +
+        theme_minimal()        
+   
+  
+```
+
+```{r}
+
+  resp3b %>% glimpse()
+  
+     resp3b %>% select(y_score1, y_theta,  cosim_pool_mc:cosim_emb3_min) %>%
+    corr.test()
+
+   resp3b %>% ggplot(  aes(x =cosim_pool_mc , y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/10) +
+        geom_smooth() +
+        facet_grid(.~Item) +
+        scale_fill_manual(values =  colors ) +
+        scale_color_manual(values =  colors ) +
+        theme_minimal()
+
+    resp2 %>%
+    # filter(sem_dis_C !=0) %>%
+     group_by( Item) %>%
+     summarise(r = cor(cosim_pool_mc_m, Ma_measure, use = "pair"), n = n()) %>%
+     filter(n>100) %>%
+     arrange(r)
+  
+    resp2 %>%
+     group_by( Item) %>%
+     summarise(r = cor(cosim_pool_mc_min, Ma_measure, use = "pair"),n = n()) %>%
+     filter(n>100) %>%
+     arrange(r)
+    
+    resp2 %>%
+     group_by( Item) %>%
+     summarise(r = cor(cosim_emb9_min, Ma_measure, use = "pair"), n = n()) %>%
+     filter(n>100) %>%
+     arrange(r)
+  
+    resp2 %>%
+     group_by( Item) %>%
+     summarise(r = cor( cosim_emb0_min, Ma_measure, use = "pair"), n = n()) %>%
+     filter(n>100) %>%
+     arrange(r)
+ 
+    
+   names(resp2)
+  
+   
+  fit <- lm(Ma_measure~cosim_cls+cosim_pool_mc_m+cosim_pool_mc_sd+cosim_pool_mc_max+cosim_pool_mc_min+cosim_tok_12_m+
+      cosim_tok_12_sd+cosim_tok_12_max+cosim_tok_12_min+cosim_emb0_m+cosim_emb0_sd+cosim_emb0_max+
+      cosim_emb0_min+cosim_emb9_m+cosim_emb9_sd+cosim_emb9_max+cosim_emb9_min+cosim_emb3_m+
+      cosim_emb3_sd+cosim_emb3_max+cosim_emb3_min, data = resp2)
+  
+  sjPlot::tab_model(fit, show.std = T)
+  
+  cosim_emb3_min
+  cosim_emb0_min
+  cosim_cls
+  
+   colors <- pnw_palette("Sailboat",5, type="discrete")
+   
+    resp2 %>%
+     # filter(sem_dis_CD !=0) %>%  
+       filter( Item %in% c("A08", "A06", "C08", "E02", "A05") )%>%
+      ggplot(  aes(x = cosim_cls, y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth() +
+        facet_grid(.~Item) +
+        scale_fill_manual(values =  colors ) +
+        scale_color_manual(values =  colors ) +
+        theme_minimal()
+     
+    resp2 %>%
+     # filter(sem_dis_CD !=0) %>%  
+       filter( Item %in% c("A05", "A06", "A08", "A09", "A07") )%>%
+      ggplot(  aes(x = cosim_cls, y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth() +
+        facet_grid(.~Item) +
+        scale_fill_manual(values =  colors ) +
+        scale_color_manual(values =  colors ) +
+        theme_minimal()          
+        
+         
+    colors <- pnw_palette("Sailboat",5, type="discrete")
+   
+     resp2 %>%
+      filter(sem_dis_C !=0) %>%  
+       filter( Item %in% c( "A05", "A06", "A09", "A08", "E01", "A03") )%>%
+      ggplot(  aes(x =sem_dis_C , y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth() +
+        facet_grid(.~Item) +
+        scale_fill_manual(values =  colors ) +
+        scale_color_manual(values =  colors ) +
+        theme_minimal() 
+    
+    
+  
+```
+
+
+### Old analysis 2021
+
+#### Prepare vectors
+```{r eval =FALSE}
+
+resp3b$row_id <- as.numeric(rownames(resp3b))
+save.image("~/Dropbox (Personal)/Criativ_NLP/metaphor_data.RData")
+names(resp3)
+
+library(readxl)
+bd_itens <- read_excel("bd_itens.xlsx")
+View(bd_itens)
+
+```
+
+
+```{r}
+# select relevant variables
+    names(resp3)
+    names(resp3[ , c(1, 28, 15, 16, 5, 6, 20)])
+    
+    
+    df_tmp <- resp3[ , c(1, 28, 15, 16, 5, 6, 20)]
+    
+# name A, B, C and D
+  str_detect()
+    df_tmp$resposta <- str_to_lower(df_tmp$resposta)
+    
+    df_tmp  <- df_tmp %>% 
+      mutate(
+            term = case_when(
+            str_detect(string = wordA, pattern = word)  ~ "A",
+            str_detect(string = wordB, pattern = word) ~ "B",
+            str_detect(string = resposta, pattern = word) ~ "C",
+            str_detect(string = Relação, pattern = word) ~ "D"
+            )
+      )
+
+# bring word vectors
+    df_tmp <- df_tmp %>% left_join(vocabulary[ , c(1, 2:602)])      
+ 
+    
+    names(vocabulary)
+    names(df_tmp)
+      
+
+    df_tmp %>% filter(term == "A") %>% select(wordA) %>% table
+    df_tmp %>% filter(term == "B") %>% select(wordB) %>% table
+```
+
+#### Calculates equivalence and remotedeness
+![Formulas](geometry.jpg)
+
+```{r}
+    names(df_tmp)
+ matrix(c(1, 1, 4, 4), 2, 2)
+ matrix(c(1, 0, 4, 0), 2, 2)
+ (matrix(c(1, 1, 4, 4), 2, 2) +  matrix(c(1, 0, 4, 0), 2, 2)) /2
+
+ df_tmp$term %>% sjmisc::frq()
+ 
+ vocabulary$d1 %>% is.na() %>% sjmisc::frq()
+
+# Prepare terms    
+    m <- df_tmp %>% select(c(1, 8, 10:609)) %>% 
+        filter(!is.na(term)) %>%
+        group_by(iddd2, term) %>%
+        dplyr::summarise(across(.cols = d1:d600, .fns = mean, na.rm=TRUE) )
+    
+    A <- m %>% filter(term=="A")
+    B <- m %>% filter(term=="B")
+    C <- m %>% filter(term=="C")
+    D <- m %>% filter(term=="D")
+    
+    A <- left_join(resp2[ , 1:2], A)
+    B <- left_join(resp2[ , 1:2], B)
+    C <- left_join(resp2[ , 1:2], C)
+    D <- left_join(resp2[ , 1:2], D)
+    
+   
+   
+# Measuring equivalence and remotedness
+    B_minus_A <- B[ , 4:603] - A[ , 4:603]
+    D_minus_C <- D[ , 4:603] - C[ , 4:603]
+ 
+    # equivalence
+    BA_minus_DC <- B_minus_A - D_minus_C 
+ 
+    # remotedeness
+     mean_AB <- (A[ , 4:603] + B[ , 4:603])/2
+     mean_BC <- (B[ , 4:603] + C[ , 4:603])/2
+     
+     mean_CD <- (C[ , 4:603] + D[ , 4:603])/2
+       
+       
+     D[, 4:603 ] -  mean_AB 
+     
+     AB_minus_BC <-  mean_AB - mean_BC
+     
+     resp2$equiv_sum <- apply(BA_minus_DC, MARGIN = 1, function(x){sum(abs(x), na.rm=TRUE)})
+     resp2$equiv_mean <- apply(BA_minus_DC, MARGIN = 1, function(x){mean(abs(x), na.rm=TRUE)})
+     
+     resp2$remote_sum <- apply(AB_minus_BC, MARGIN = 1, function(x){sum(abs(x), na.rm=TRUE)})
+     resp2$remote_mean <- apply(AB_minus_BC, MARGIN = 1, function(x){mean(abs(x), na.rm=TRUE)})
+     
+   
+    
+     resp2$sem_dis_C = apply(
+          (C[, 4:603 ] -  mean_AB), 
+          MARGIN = 1, 
+          function(x){
+              sqrt( sum( x^2, na.rm=TRUE ) / length(x)) 
+              }
+          )
+
+     
+     resp2$sem_dis_CD = apply(
+          (mean_CD -  mean_AB), 
+          MARGIN = 1, 
+          function(x){
+              sqrt( sum( x^2, na.rm=TRUE ) / length(x)) 
+              }
+          )
+
+    # cossine similarity
+     
+     out <- vector("double", nrow(resp2))
+  
+     for(i in 1:length(out)) {
+        x = mean_AB[i, ] %>% as.matrix 
+        y = C[i, 4:603] %>% as.matrix
+          out[[i]] =  x %*% t(y)   /  (sqrt(rowSums(x^2) %*% t(rowSums(y^2))))  
+        } 
+    
+    resp2$cosim <- out 
+     
+   library(text2vec)
+    
+    psim2
+        
+# Not used
+    m2 <- m %>% group_by(term) %>% nest
+    as.numeric(m2$data[[1]])
+    map_dbl(m2$data, abs)
+    
+    as.matrix(A[1:4, 4:7]) 
+    as.matrix(B[1:4, 4:7])
+    
+    as.matrix(A[1:4, 4:7]) - as.matrix(B[1:4, 4:7])
+    
+     A[1:4, 4:7] 
+    table(A$iddd2 == B$iddd2) 
+```
+
+#### Exploring associations
+
+```{r}
+
+    names(resp2)
+
+   resp2 <- resp2[ , -28]
+
+    resp2 %>% select(c(10, 11, 19, 24:30)) %>% describe
+    
+     ggplot( data = resp2, aes(x =sem_dis_C )) +
+        geom_histogram( alpha = 1/2, color = "white")   
+   
+    resp2 %>%
+     filter(sem_dis_C !=0) %>%
+      group_by( Item) %>%
+      summarise(r = cor(sem_dis_C ,  Ma_measure, use = "pair"),
+                n = n()) %>%
+     filter(n>100) %>%
+     arrange(desc(r))
+   
+      resp2 %>%
+      group_by( Item) %>%
+      nest() %>%
+     
+      map(data, names)
+      
+      
+      summarise(r = cor(sem_dis_CD ,  Ma_measure, use = "pair"),
+                n = n()) %>%
+      filter(n>100)      
+   
+      
+          corr.test(x =  resp2[ , 8, 11, 13, 24:30],  )  
+     
+    resp2 %>% 
+       select(c(3, 8, 11, 13, 24:30)) %>%
+        group_by(Item) %>% 
+        corr.test(.$[c( "Ma_measure", "ma_score_med", "Ma_inmnsq",  "equiv_sum","equiv_mean",
+                       "remote_sum", "remote_mean", "sem_dis_C", "sem_dis_CD",  "cosim" )])  
+      
+    names(resp2[, c(3, 8, 11, 13, 24:30)] )     
+    colors <- pnw_palette("Sailboat",5, type="discrete")
+    resp2 %>%
+      filter(sem_dis_CD !=0) %>%  
+       filter( Item %in% c("A08", "A06", "C08", "E02", "A05") )%>%
+      ggplot(  aes(x =sem_dis_CD , y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth() +
+        facet_grid(.~Item) +
+        scale_fill_manual(values =  colors ) +
+        scale_color_manual(values =  colors ) +
+        theme_minimal()
+              
+        
+         
+    colors <- pnw_palette("Sailboat",5, type="discrete")
+    resp2 %>%
+      filter(sem_dis_C !=0) %>%  
+       filter( Item %in% c("A08", "A06", "C08", "E02", "A05") )%>%
+      ggplot(  aes(x =sem_dis_C , y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth() +
+        facet_grid(.~Item) +
+        scale_fill_manual(values =  colors ) +
+        scale_color_manual(values =  colors ) +
+        theme_minimal() 
+    
+    
+    resp2 %>%
+      filter(sem_dis_CD !=0) %>%  
+      filter( Item %in% c("A08", "A06", "C08", "E02", "A05") )%>%
+      ggplot(  aes(x =sem_dis_C , y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth() +
+        facet_grid(.~Item)
+    
+              
+    resp2 %>%
+  #    filter(cosim !=0) %>%  
+      filter( Item %in% c("A08", "A06", "C08", "E02", "A05") )%>%
+      ggplot(  aes(x =cosim , y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth() +
+        facet_grid(.~Item)
+       
+    
+         
+    resp2 %>%
+      filter(sem_dis !=0) %>%
+      group_by(Item) %>%  
+      mutate( n = n() ) %>%
+      ungroup() %>%
+      filter(n>100) %>%
+      ggplot(  aes(x =sem_dis , y = Ma_measure, fill = Item, color = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth() +
+        facet_grid(.~Item)
+    
+
+      
+      mutate(factor(round(ma_score_med))) %>% 
+      ggplot(  aes(x =sem_dis , y = Ma_measure, fill = Item) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth(color = "orange") +
+        geom_smooth(method = "lm") 
+      
+    
+    ggplot( data = resp2, aes(x =equiv_sum)) +
+        geom_histogram( alpha = 1/2) 
+    
+    ggplot( data = resp2, aes(x =remote_sum )) +
+        geom_histogram( alpha = 1/2)    
+    
+    ggplot( data = resp2, aes(x =equiv_mean)) +
+        geom_histogram( alpha = 1/2) 
+    
+    resp2 %>%
+      ggplot(  aes(x = equiv_mean, y = Ma_measure) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth(color = "orange") +
+        geom_smooth(method = "lm")
+    
+    resp2 %>% filter(Item=="A05" & remote_sum >0) %>%
+    ggplot( aes(x = remote_sum, y = Ma_measure) ) +
+        geom_point( alpha = 1/2) +
+        geom_smooth(color = "orange") +
+        geom_smooth(method = "lm")
+  
+    
+    names(resp2)
+    resp2 %>% filter(remote_sum >0) %>% select(c(3, 8, 10, 11, 19, 24:28)) %>%
+        select(-Item) %>%
+        corr.test()
+    
+    resp2 %>% select(c(3, 15, 16, 5, 6, 8, 24:27)) %>% 
+        arrange(Item, equiv_mean) %>% View()
+    
+    
+    resp2 %>% filter( remote_sum >0) %>%
+    ggplot( aes(x = equiv_mean, y = remote_mean)) +
+        geom_point( alpha = 1/2, aes(color = cria_quartis(Ma_measure) )) +
+        geom_smooth(method = "lm") +
+          scale_colour_brewer()
+    
+     resp2 %>% filter( remote_sum >0) %>%
+    ggplot( aes(x = cosim, y =Ma_measure )) +
+        geom_point( alpha = 1/2, aes(color = cria_quartis(remote_mean) )) +
+        geom_smooth(method = "lm") +
+          scale_colour_brewer()
+         
+    
+   table(resp2$Item)
+    
+     names(resp2)
+    
+     resp2 %>% filter(remote_sum > 0) %>% select(c(2, 8, 10, 11, 19, 24:27)) %>%
+         group_by(Código) %>%
+         summarise(
+         ma_score_med = mean( ma_score_med, na.rm = TRUE),
+         Ma_measure = mean(Ma_measure, na.rm = TRUE),
+         equiv_sum = mean(equiv_sum , na.rm = TRUE),
+         equiv_mean = mean(equiv_mean, na.rm = TRUE),
+         remote_sum = mean(remote_sum , na.rm = TRUE),
+         remote_mean = mean(remote_mean, na.rm = TRUE),
+         dif = remote_sum - equiv_sum
+         ) %>%
+         select(-Código) %>%
+         corr.test()
+     
+     
+         
+     resp2 %>% filter(remote_sum > 0) %>% select(c(2, 8, 10, 11, 19, 24:27)) %>%
+         group_by(Código) %>%
+         summarise(
+         ma_score_med = mean( ma_score_med, na.rm = TRUE),
+         Ma_measure = mean(Ma_measure, na.rm = TRUE),
+         equiv_sum = mean(equiv_sum , na.rm = TRUE),
+         equiv_mean = mean(equiv_mean, na.rm = TRUE),
+         remote_sum = mean(remote_sum , na.rm = TRUE),
+         remote_mean = mean(remote_mean, na.rm = TRUE),
+         dif = remote_mean - equiv_mean
+         ) %>%
+        ggplot( aes(x = Ma_measure, y = dif  ) ) +
+            geom_point( alpha = 1/2) +
+            geom_smooth(color = "orange") +
+            geom_smooth(method = "lm") 
+       
+     
+     
+     
+      resp2 %>% filter(remote_sum > 0) %>% select(c(2, 8, 10, 11, 19, 24:27)) %>%
+         group_by(Código) %>%
+         summarise(
+         ma_score_med = sum( ma_score_med, na.rm = TRUE),
+         Ma_measure = sum(Ma_measure, na.rm = TRUE),
+         equiv_sum = sum(equiv_sum , na.rm = TRUE),
+         equiv_mean = sum(equiv_mean, na.rm = TRUE),
+         remote_sum = sum(remote_sum , na.rm = TRUE),
+         remote_mean = sum(remote_mean, na.rm = TRUE),
+         freq = n()
+         ) %>%
+         select(-Código) %>%
+         corr.test()
+      
+      
+       resp2 %>% filter(remote_sum > 0) %>% select(c(2, 8, 10, 11, 19, 24:27)) %>%
+         group_by(Código) %>%
+         summarise(
+         ma_score_med = sum( ma_score_med, na.rm = TRUE),
+         Ma_measure = sum(Ma_measure, na.rm = TRUE),
+         equiv_sum = sum(equiv_sum , na.rm = TRUE),
+         equiv_mean = sum(equiv_mean, na.rm = TRUE),
+         remote_sum = sum(remote_sum , na.rm = TRUE),
+         remote_mean = sum(remote_mean, na.rm = TRUE)
+         ) %>%
+        ggplot( aes(x = Ma_measure, y = equiv_sum   ) ) +
+            geom_point( alpha = 1/2) +
+            geom_smooth(color = "orange") +
+            geom_smooth(method = "lm")
+
+```
+
+
+#### Prepare word encodings with keras utilities 
+
+```{r}
+
+    
+ names(bd_final)
+    df_tmp <- bd_final %>% filter(is.na(ma2_measure) == FALSE )
+  
+   df_tmp <- bd_final %>% filter(is.na(f.measure) == FALSE )
+   
+# Using keras utilities to tokenize
+    
+    samples <- as.character(df_tmp$wv_concept)
+    tokenizer <- text_tokenizer() %>% fit_text_tokenizer(samples)
+    sequences <- texts_to_sequences(tokenizer, samples)
+    word_index <- tokenizer$word_index   
+
+```
+
+
+
